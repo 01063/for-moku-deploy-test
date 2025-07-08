@@ -1,5 +1,7 @@
 import type * as Party from "partykit/server";
 
+import { fromZonedTime } from 'date-fns-tz';
+
 type User = {
   id: string,
   name: string,
@@ -23,6 +25,35 @@ export default class Server implements Party.Server {
       this.userIcons = (await this.room.storage.get<UserIcon[]>("userIcons")) ?? [];
     }
     return this.userIcons;
+  }
+
+  async onStart() { 
+    await this.room.storage.put<string>("roomId", this.room.id);
+
+    const url = `${this.room.env.NEXT_PUBLIC_BASE_URL}/api/room/${this.room.id}`
+    const response = await fetch(url);
+    const { message } = await response.json();
+    const endTime = new Date(message.endTime);
+
+    if (endTime.getTime() > Date.now()) {
+      const alarm = fromZonedTime(endTime, 'Asia/Tokyo');
+      await this.room.storage.setAlarm(alarm);
+    }
+  }
+
+  async onAlarm() {
+    const userIcons = await this.ensureLoadUserIcons();
+
+    const url = `${this.room.env.NEXT_PUBLIC_BASE_URL}/api/room/${this.room.id}`
+    await fetch(url, {
+      method: "POST",
+      body: JSON.stringify(userIcons),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    this.room.broadcast(JSON.stringify({ type: "close" }))
   }
 
   async onRequest(request: Party.Request) {
